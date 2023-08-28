@@ -1,0 +1,5 @@
+bulder = {"login": "builder",
+          "password": "12345678"}
+supplier = {"login": "supplier",
+            "password": "12345"}
+
