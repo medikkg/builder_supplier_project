@@ -98,13 +98,13 @@ def menu_5():
         case '1':
             print(db.view_build_objects())
         case '001':
-            print(db.view_build_objects(f"district_id='{choice}'"))
+            print(db.view_build_objects(f"b.district_id='{choice}'"))
         case '002':
-            print(db.view_build_objects(f"district_id='{choice}'"))
+            print(db.view_build_objects(f"b.district_id='{choice}'"))
         case '003':
-            print(db.view_build_objects(f"district_id='{choice}'"))
+            print(db.view_build_objects(f"b.district_id='{choice}'"))
         case '004':
-            print(db.view_build_objects(f"district_id='{choice}'"))
+            print(db.view_build_objects(f"b.district_id='{choice}'"))
         case '+':
             print(db.insert_build_objects())
 

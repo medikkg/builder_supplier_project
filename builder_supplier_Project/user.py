@@ -1,5 +1,8 @@
 import psycopg2
 from config import host, password, port, db_name, user
+from prettytable import *
+import menu_builder
+import menu_supplier
 
 table_name = 'users_PorstgreSQL'
 class UserTable:
@@ -19,9 +22,14 @@ class UserTable:
                                f"login text NOT NULL UNIQUE," \
                                f"password text NOT NULL," \
                                f"user_id int" \
-                               f");"
+                               f"); " \
+                               f"CREATE TABLE IF NOT EXISTS users_account (" \
+                               f"id serial NOT NULL PRIMARY KEY," \
+                               f"user_id int," \
+                               f"acc_name text;"
             cursor.execute(createTableQuery % table_name)
-            print(f"Таблица '{table_name}' создана")
+            print(f"Таблица '{table_name}' создана\n"
+                  f"Также создана доп.таблица 'users_accounts' с названиями аккаунтов")
 
     def login_and_password(self):
         login = input('Введите логин: ')
@@ -42,19 +50,22 @@ class UserTable:
 
     def selectJoinTable(self):
         with self.connection.cursor() as cursor:
-            selectQuery = f"SELECT u.login, u.password, us.acc_name " \
+            selectQuery = f"SELECT u.login, u.password, us.acc_name, us.user_id " \
                           f"FROM {table_name} u " \
                           f"JOIN users_account us " \
                           f"ON u.user_id = us.user_id"
             cursor.execute(selectQuery)
-            records = [row for row in cursor.fetchall()]
-            print(records)
-    def check_users(self):
+            join_table = from_db_cursor(cursor)
+            print(join_table)
+
+    def check_users(self, condition=None):
         '''Метод проверяет на соответствие логина, пароля'''
+        query = f"SELECT login, password FROM %s "
+        if condition:
+            query += f"WHERE {condition};"
         with self.connection.cursor() as cursor:
             login, password = self.login_and_password()
-            selectQuery = f"SELECT login, password FROM %s"
-            cursor.execute(selectQuery % table_name)
+            cursor.execute(query % table_name)
             records = [row for row in cursor.fetchall()]
             for record in records:
                 if record[0] == login and record[1] == password:
@@ -71,17 +82,27 @@ class Login():
             print('''Добро пожаловать! Выберите пункт меню:
                         1. Вход
                         2. Регистрация
-                        3. Выход''')
+                        3. Выход 
+>>>>> ''')
             user_input = input()
-
             if user_input == '1':
-                result = self.check.check_users()
-                if result:
-                    print('Вы вошли в систему')
-                    break
+                choice = input('Введите название аккаунта>>> ')
+                if choice == 'builder':
+                    result = self.check.check_users(f"user_id=100")
+                    if result:
+                        print('Вы вошли в систему как Подрядчик')
+                        menu_builder.menu_builder()
+                    else:
+                        print('~~~~~Неверный логин или пароль~~~~~')
+                elif choice == 'supplier':
+                    result = self.check.check_users(f"user_id=200")
+                    if result:
+                        print('Вы вошли в систему как Поставщик')
+                        menu_supplier.menu_supplier()
+                    else:
+                        print('~~~~~Неверный логин или пароль~~~~~')
                 else:
-                    print('~~~~~Неверный логин или пароль~~~~~')
-
+                    print('~~~~~Нет такого аккаунта~~~~~')
             elif user_input == '2':
                 result = self.check.insert_user()
                 if not result:
@@ -92,6 +113,8 @@ class Login():
             elif user_input == '3':
                 print('Завершение работы')
                 break
+def create_users_tables():
+    db.create_table()
 
 
 if __name__ == "__main__":
@@ -99,10 +122,6 @@ if __name__ == "__main__":
         fileName = "users.txt"
 
         db = UserTable()
-        # db.selectJoinTable()
-        # db.create_table()
-        # db.insert_user()
-        # print(db.check_users())
         manager = Login()
         manager.main()
 

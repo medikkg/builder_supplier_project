@@ -2,6 +2,7 @@ import pandas as pd
 import psycopg2
 from config import host, password, port, db_name, user
 from prettytable import *
+import datetime
 
 table_name = 'materials'
 fileName = 'katalog.xlsx'
@@ -40,13 +41,16 @@ class Materials:
                 cursor.execute(createTableQuery % table_name)
 
                 self.create_table_supply_materials()  # таблица заказанных материалов автоматически создается
+                self.create_table_delivered_materials()  # таблица доставленных материалов автоматически создается
                 self.create_table_districts()  # таблица районов с данными автоматически создается
                 self.create_table_build_objects()  # таблица строящихся объектов автоматически создается
                 self.create_table_finished_objects()  # таблица завершенных объектов автоматически создается
-                self.add_finish_objects_func()  # функция триггера на оформление заказа
+                self.add_supply_materials_func()  # функция триггера на оформление заказа
                 self.trigger_add_supply_materials_func()
                 self.add_finish_objects_func()  # функция триггера на обновление статус строящихся объектов
                 self.trigger_add_finish_object_func()
+                self.add_delivered_materials_func()  # функция триггера на доставку заказа
+                self.trigger_add_delivered_materials_func()
 
                 print(f"Таблица '{table_name}' создана")
         except Exception as ex:
@@ -69,6 +73,17 @@ class Materials:
                     "total int NOT NULL," \
                     "orders_qnt int NOT NULL," \
                     "balance int NOT NULL);"
+            cursor.execute(query)
+
+    def create_table_delivered_materials(self):  # вызывается только 1 раз
+        with self.connection.cursor() as cursor:
+            query = "CREATE TABLE IF NOT EXISTS delivered_materials (" \
+                    "id serial NOT NULL PRIMARY KEY," \
+                    "name text NOT NULL," \
+                    "total int NOT NULL," \
+                    "orders_qnt int NOT NULL," \
+                    "balance int NOT NULL," \
+                    "delivery_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
             cursor.execute(query)
 
     def create_table_build_objects(self):  # вызывается только 1 раз
@@ -161,6 +176,25 @@ class Materials:
                 records = [row for row in cursor.fetchall()]
                 return f"{supply_list}\n" \
                        f"В таблице 'supply_materials' всего заказов - {len(records)}"
+        except Exception as ex:
+            print('[ОШИБКА]', ex)
+
+    def view_delivered_table(self):
+        """
+        Метод отображения оформленных заказов из таблицы delivered_materials
+        Данная таблица автоматически обновляется триггером
+        :return:
+        """
+        try:
+            query = f"SELECT * FROM delivered_materials;"
+
+            with self.connection.cursor() as cursor:
+                cursor.execute(query)
+                supply_list = from_db_cursor(cursor)
+                cursor.execute(query)
+                records = [row for row in cursor.fetchall()]
+                return f"{supply_list}\n" \
+                       f"В таблице 'delivered_materials' всего было доставок - {len(records)}"
         except Exception as ex:
             print('[ОШИБКА]', ex)
 
@@ -305,12 +339,12 @@ class Materials:
     def add_supply_materials_func(self):
         """
         Вызывается только 1 раз при создании основной таблицы
-        Фукнция для триггера. Данные добавляются автоматически в таблицу supply_materials
+        Функция для триггера. Данные добавляются автоматически в таблицу supply_materials
         :return:
         """
         with self.connection.cursor() as cursor:
             query = """
-        CREATE OR REPLACE FUNCTION change_material_info()
+        CREATE OR REPLACE FUNCTION add_supply_materials_func()
         RETURNS TRIGGER
         AS $$
         BEGIN
@@ -334,11 +368,51 @@ class Materials:
         """
         with self.connection.cursor() as cursor:
             query = """
-        CREATE OR REPLACE TRIGGER trigger_change_material_info
+        CREATE OR REPLACE TRIGGER trigger_add_supply_materials_func
         AFTER UPDATE ON materials
         FOR EACH ROW
         WHEN (OLD.balance IS DISTINCT FROM NEW.balance)
-        EXECUTE FUNCTION change_material_info()"""
+        EXECUTE FUNCTION add_supply_materials_func()"""
+
+            cursor.execute(query)
+
+    def add_delivered_materials_func(self):
+        """
+        Вызывается только 1 раз при создании основной таблицы
+        Функция для триггера. Данные добавляются автоматически в таблицу delivered_materials
+        :return:
+        """
+        with self.connection.cursor() as cursor:
+            query = """
+        CREATE OR REPLACE FUNCTION add_delivered_materials_func()
+        RETURNS TRIGGER
+        AS $$
+        BEGIN
+            IF TG_OP = 'UPDATE' THEN 
+                INSERT INTO delivered_materials (name, total, orders_qnt, balance, delivery_time)
+                VALUES
+                (NEW.name, NEW.total, NEW.orders_qnt, NEW.balance, NOW());
+                RETURN NEW;
+            END IF;
+        END;
+        $$ LANGUAGE plpgsql;"""
+
+            cursor.execute(query)
+
+    def trigger_add_delivered_materials_func(self):
+        """
+        Вызывается только 1 раз
+        Триггер для добавления. Lанные добавляются автоматически в таблицу supply_materials
+
+        :return:
+        """
+        with self.connection.cursor() as cursor:
+            query = """
+        CREATE OR REPLACE TRIGGER trigger_add_delivered_materials_func
+        AFTER UPDATE ON materials
+        FOR EACH ROW
+        WHEN (OLD.balance IS DISTINCT FROM NEW.balance)
+        EXECUTE FUNCTION add_delivered_materials_func()"""
 
             cursor.execute(query)
 
@@ -347,7 +421,7 @@ class Materials:
         Данные обновляются в автоматическом режиме в таблице 'materials'
         Также при обновлении после каждой операции
         данные добавляются в новую таблицу 'supply_materials'
-        Для этого есть функции создания ТРИГГЕРА - create_log_func и trigger_log_func
+        Для этого есть функции создания ТРИГГЕРА - add_supply_materials_func и trigger_add_supply_materials_func
         """
         try:
             name_value = input('Введите точное название заказа: ')
@@ -383,6 +457,77 @@ class Materials:
                       f'Количество: {set_value}')
         except Exception as ex:
             print('[ОШИБКА]', ex)
+
+    def new_deliveries(self):
+        """Функция оформления доставок.
+        Данные обновляются в автоматическом режиме в таблице 'materials'
+        Также при обновлении после каждой операции
+        данные добавляются в новую таблицу 'delivered_materials'
+        Для этого есть функции создания ТРИГГЕРА - add_delivered_materials_func и trigger_add_delivered_materials_func
+        """
+        try:
+            name_value = input('Введите точное название заказа: ')
+            set_value = int(input('Введите количество: '))
+
+            with self.connection.cursor() as cursor:
+                updateQuery = f"""
+                DO $$
+                DECLARE 
+                    orders int := {set_value};
+                BEGIN
+                UPDATE {table_name}
+                SET orders_qnt = orders_qnt + orders
+                WHERE name = '{name_value}';
+
+                UPDATE {table_name}
+                SET balance = total - orders_qnt
+                WHERE name = '{name_value}';
+
+                IF (SELECT balance FROM {table_name} WHERE name = '{name_value}') < 0 THEN
+                    ROLLBACK;
+                    RAISE NOTICE 'Баланс не может быть меньше 0. На складе';
+                ELSE
+                    RAISE NOTICE 'Успешно';
+                    COMMIT;
+                END IF;
+                END $$;
+                """
+                cursor.execute(updateQuery)
+
+                time_query = f"SELECT delivery_time FROM delivered_materials WHERE name='{name_value}'"
+                cursor.execute(time_query)
+                delivered_time = cursor.fetchone()
+                fmt = '%Y-%m-%d %H:%M:%S %Z%z'
+                for row in delivered_time:
+                    date1 = row.strftime(fmt)
+                    print(f'Заказ доставлен в {date1}:\n'
+                          f'Название товара: {name_value}\n'
+                          f'Количество: {set_value} шт')
+        except Exception as ex:
+            print('[ОШИБКА]', ex)
+
+    def percentage_delivered_func(self):
+        with self.connection.cursor() as cursor:
+            query = """
+            WITH test AS (
+            SELECT count(*) AS qnt
+            FROM delivered_materials
+            UNION
+            SELECT count(*)
+            FROM materials
+            WHERE balance=0
+        ) 
+        SELECT qnt,
+                round(100.0 * qnt / (SELECT sum(qnt) FROM test),2) AS percent,
+                SUM(qnt) OVER() as all_delivers
+        FROM test;"""
+            cursor.execute(query)
+            material_list = from_db_cursor(cursor)
+            cursor.execute(query)
+            records = [row for row in cursor.fetchall()]
+            return f'{material_list}\n' \
+                   f'Доставленные материалы - {records[0][1]}% или {records[0][0]} шт\n' \
+                   f'Нуждающиеся в доставке - {records[1][1]}% или {records[1][0]} шт'
 
     def min_balance_materials(self):
         """
@@ -463,24 +608,33 @@ class Materials:
         :return:
         """
         with self.connection.cursor() as cursor:
-            query = f"DROP TABLE %s;" \
+            query = f"DROP TABLE materials;" \
                     f"DROP TABLE build_objects;" \
                     f"DROP TABLE finished_objects;" \
                     f"DROP TABLE districts;" \
-                    f"DROP TABLE supply_materials"
-            cursor.execute(query % table_name)
+                    f"DROP TABLE supply_materials;" \
+                    f"DROP TABLE delivered_materials;"
+                    # f"DROP FUNCTION add_delivered_materials_func;" \
+                    # f"DROP FUNCTION add_supply_materials_func;" \
+                    # f"DROP FUNCTION add_finished_object;" \
+                    # f"DROP TRIGGER trigger_add_supply_materials_func ON materials;" \
+                    # f"DROP TRIGGER trigger_add_delivered_materials_func ON materials;" \
+                    # f"DROP TRIGGER trigger_add_finished_object ON build_objects;"
+            cursor.execute(query)
             print("Удалены следующие таблицы:\n"
                   "- Основная таблица;\n"
                   "-'build_objects';\n"
                   "-'finished_objects';\n"
                   "-'districts';\n"
-                  "-'supply_materials'."
+                  "-'supply_materials';\n"
+                  "-'delivered_materials."
                   )
 
 
 if __name__ == '__main__':
     db = Materials()
-    # db.create_table()
+    # db.delete_all_tables()
+    db.create_main_table()
     # db.insert_materials()
     # print(db.view_finished_objects())
-    print(db.view_build_objects())
+    # print(db.view_build_objects())

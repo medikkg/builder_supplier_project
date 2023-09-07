@@ -1,10 +1,10 @@
-from builder_functions import *
+from supplier_functions import *
 
-"""Меню подрядчика-строителя """
-"""Все функции находятся в builder_functions.py"""
+"""Меню поствщика """
+"""Все функции находятся в supplier_functions.py"""
 
 
-def menu_builder():
+def menu_supplier():
     while True:
         print(message)
         choice = input('Введите номер меню от 1 до 9>> ')
@@ -16,21 +16,19 @@ def menu_builder():
             case '3':
                 menu_3()
             case '4':
+                pass
                 menu_4()
             case '5':
                 menu_5()
             case '6':
-                menu_6()
-            case '7':
-                menu_7()
-            case '8':
                 print(info_message)
-            case '9':
+            case '7':
                 print('Программа завершена. До новых запросов!')
                 exit()
-            case '0':
+            case 'DROP':
                 menu_0()
 
 
+
 if __name__ == '__main__':
-    menu_builder()
+    menu_supplier()
